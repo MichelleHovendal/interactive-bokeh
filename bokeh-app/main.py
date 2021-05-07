@@ -1,29 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-To run this on a bokeh server, in a command prompt run
-bokeh serve --show favorite_pokemon_ui.py
+Created on Sat May  1 22:17:10 2021
 
-Created on Sun Aug 18 19:07:52 2019
-@author: Arturo Moncada-Torres
-arturomoncadatorres@gmail.com
+@author: Miche
 """
-import os
+
+
 import pandas as pd
 import numpy as np
-import pathlib
+import os
+from os.path import dirname, join
 
-from bokeh.io import curdoc
 from bokeh.plotting import figure
-from bokeh.layouts import layout, row, column
-from bokeh.models import ColumnDataSource
-from bokeh.models import Range1d, Panel, Tabs, FactorRange
-from bokeh.models import Arrow, NormalHead
-from bokeh.models import Legend, LegendItem
-from bokeh.models import DatetimeTickFormatter
-from bokeh.models.tools import HoverTool
-from bokeh.models.widgets import Div, Select
+from bokeh.io import show, output_notebook, curdoc
+from bokeh.models import ColumnDataSource, FactorRange, Legend, HoverTool, GeoJSONDataSource, \
+                        LinearColorMapper, ColorBar, NumeralTickFormatter, Div, Select, TableColumn, \
+                        DataTable, CheckboxGroup, Tabs, Panel, CheckboxButtonGroup
+from bokeh.application.handlers import FunctionHandler
+from bokeh.application import Application
+from bokeh.palettes import Category20c, Pastel1, Set3, Blues
+from bokeh.layouts import column, row, WidgetBox, gridplot
+from bokeh.embed import file_html
+from bokeh.resources import CDN
+from bokeh.tile_providers import get_provider, Vendors
+from bokeh.transform import linear_cmap,factor_cmap
 
-import pokefunctions
+import pathlib
 
 # Define paths.
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -33,285 +35,159 @@ PATH_OUTPUT = pathlib.Path(os.path.join(dir_path, 'output'))
 if not PATH_OUTPUT.exists():
     PATH_OUTPUT.mkdir()
 
-# Define parameters.
-POKEMON_PANEL_WIDTH = 200
-PLOT_HEIGHT = 350
 
+df = pd.read_csv(PATH_DATA/'data.csv')
 
-#%%
+df_new = df #laziness 
 
-# Preparing the data is time consuming. Thus, we save the processed data and load it if possible.
-df = pokefunctions.read_raw_data(PATH_DATA/'responses.xlsx')
-
-# Preparing the data is time consuming. Thus, we save the processed data and load it if possible.
-if (PATH_DATA/'df_ranked.csv').exists():
+# Define function to switch from lat/long to mercator coordinates
+def x_coord(x, y):
     
-    df_ranked = pd.read_csv(PATH_DATA/'df_ranked.csv', index_col=0)
-else:
-    # Add additional columns.
-    df['sprite_source'] = df.index.map(pokefunctions.get_sprite_url)
-    df['generation_color'] = df['generation'].map(lambda x: pokefunctions.generation_palette()[x])
-
-    # Add ranking information and sort again by Pokemon number.
-    df_ranked = pokefunctions.rank_raw_data(df)
+    lat = x
+    lon = y
     
-    df_ranked.to_csv(PATH_DATA/'df_ranked.csv')
-
-df = df_ranked.sort_index()
-
-#
-df_votes = pokefunctions.read_votes(PATH_DATA/'responses.xlsx')
-df_votes_init = pokefunctions.process_pokemon_votes(df_votes, 'Bulbasaur')
-df_votes_max = pokefunctions.process_pokemon_votes(df_votes, 'Charizard')
+    r_major = 6378137.000
+    x = r_major * np.radians(lon)
+    scale = x/lon
+    y = 180.0/np.pi * np.log(np.tan(np.pi/4.0 + 
+        lat * (np.pi/180.0)/2.0)) * scale
+    return (x, y)
 
 
-#%%
-# Define tools.
-tools = ['pan', 'zoom_in', 'zoom_out', 'wheel_zoom', 'reset']
-
-initial_number = 1
-initial_name = df.loc[initial_number, 'name']
-initial_generation = df.loc[initial_number, 'generation']
-initial_votes = df.loc[initial_number, 'votes']
-initial_ranking_overall = df.loc[initial_number, 'ranking_overall']
-initial_ranking_generation = df.loc[initial_number, 'ranking_generation']
-
-
-# Create Pokemon display (sprite and info).
-sprite = Div(text="""{}""".format(pokefunctions.get_sprite_html_text(initial_number, alt=initial_name, width=150)), width=POKEMON_PANEL_WIDTH, height=int(PLOT_HEIGHT*.35))
-
-info = Div(text="""
-<h3>{0}. {1}</h3>
-<table style="width:100%">
-  <tr>
-    <td><b>Generation:</b></td>
-    <td>{2:.0f}</td>
-  </tr>
-  <tr>
-    <td><b>Votes:</b></td>
-    <td>{3:.0f}</td>
-  </tr>
-  <tr>
-    <td><b>Overall ranking:</b></td>
-    <td>{4:.0f}</td>
-  </tr>
-  <tr>
-    <td><b>Generation ranking:</b></td>
-    <td>{5:.0f}</td>
-  </tr>
-</table>
-""".format(initial_number, initial_name, initial_generation, initial_votes, initial_ranking_overall, initial_ranking_generation), width=POKEMON_PANEL_WIDTH, height=int(PLOT_HEIGHT*.6))
-
-# Create Select.
-select = Select(title="Pokemon:", value=df['name'].tolist()[0], options=df['name'].tolist())
-
-# Create the "Overall" plot.
-source_overall = ColumnDataSource(df_ranked[['name', 'votes', 'generation', 'generation_color', 'ranking_overall', 'ranking_generation', 'sprite_source']])
-pokemon_names = source_overall.data['name']
-pokemon_votes = source_overall.data['votes']
-
-# Notice that initializing the figure with y_range=pokemon_names 
-# doesn't allow the option to bound the plot.
-p_overall = figure(y_range=FactorRange(factors=pokemon_names, bounds=(0, len(pokemon_names))), 
-                   x_axis_label='Votes', plot_height=PLOT_HEIGHT, tools=tools)
-r_overall = p_overall.hbar(y='name', left=0, right='votes', height=1, color='generation_color', source=source_overall)
-p_overall.x_range = Range1d(0, max(pokemon_votes)*1.05, bounds=(0, max(pokemon_votes)*1.05))
-p_overall.ygrid.grid_line_color = None
-y_coord = len(df_ranked) - initial_ranking_overall + 0.5
-arrow_overall = Arrow(end=NormalHead(line_color='red', fill_color='red', line_width=0, size=10, line_alpha=0.75, fill_alpha=0.75), 
-                      line_color='red', line_width=2.5, line_alpha=0.75, 
-                      x_start=initial_votes + max(pokemon_votes)*0.05, x_end=initial_votes, 
-                      y_start=y_coord, y_end=y_coord)
-p_overall.add_layout(arrow_overall)
-
-legend = Legend(items=[
-    LegendItem(label='1', renderers=[r_overall], index=6),
-    LegendItem(label='2', renderers=[r_overall], index=37),
-    LegendItem(label='3', renderers=[r_overall], index=1),
-    LegendItem(label='4', renderers=[r_overall], index=10),
-    LegendItem(label='5', renderers=[r_overall], index=2),
-    LegendItem(label='6', renderers=[r_overall], index=14),
-    LegendItem(label='7', renderers=[r_overall], index=8),
-], title='Generation', location='bottom_right')
-p_overall.add_layout(legend)
-
-hover_overall = HoverTool(mode='hline')
-hover_overall.tooltips = """
-<table style="width:175px">
-  <tr>
-    <th>@name</th>
-    <td rowspan=4><image src=@sprite_source alt="" width="75"/></td>
-  </tr>
-  <tr>
-    <td><strong>Generation: </strong>@generation</td>
-  </tr>
-  <tr>
-    <td><strong>Votes: </strong>@votes</td>
-  </tr>
-  <tr>
-    <td><strong>Ranking: </strong>@ranking_overall</td>
-  </tr>
-</table>
-"""
-p_overall.add_tools(hover_overall)
+def make_dataset(selectedState, selectedKitchen, selectedType, selectedPrice):
+    df_ = df_new.copy()
+    df_empty = pd.DataFrame()
+    if selectedPrice == 'No Preference':  
+        if selectedState != 'All':
+            df_ = df_[df_['state_name'] == selectedState]
+        if selectedKitchen != 'All':
+            df_ = df_[df_['cat_kitchen'] == selectedKitchen]
+        if selectedType != 'All':
+            df_ = df_[df_['cat_type'] == selectedType]
+    else:
+        for i, price in enumerate(selectedPrice):
+            # Subset to the carrier
+            subset = df_[df_['PriceRange'] == price]
+            df_empty = df_empty.append(subset)
+            
+        if selectedState != 'All':
+            df_empty = df_empty[df_empty['state_name'] == selectedState]
+        if selectedKitchen != 'All':
+            df_empty = df_empty[df_empty['cat_kitchen'] == selectedKitchen]
+        if selectedType != 'All':
+            df_empty = df_empty[df_empty['cat_type'] == selectedType]
     
+    if selectedPrice == 'No Preference':
+        df_ = df_
+    else:
+        df_ = df_empty
+
+
+    # Preparing with long/lat coordinates 
+    df_['coordinates'] = list(zip(df_['latitude'], df_['longitude']))
+    # Obtain list of mercator coordinates
+    mercators = [x_coord(x, y) for x, y in df_['coordinates'] ]
+
+    # Create mercator column in our df
+    df_['mercator'] = mercators
+    # Split that column out into two separate columns - mercator_x and mercator_y
+    df_[['mercator_x', 'mercator_y']] = df_['mercator'].apply(pd.Series)
+
+    #title for the plot  
+    div_title = Div(text="<b> Restaurant matching Preferences: {} </b>".format(len(df_['name'].unique())),
+               style={'font-size': '150%'})
     
-# Create the "Generation" plot.
-df_generation = df_ranked.query('generation==' + str(initial_generation))
-source_generation = ColumnDataSource(df_generation[['name', 'votes', 'generation_color', 'ranking_generation', 'sprite_source']])
-pokemon_names_gen = source_generation.data['name']
-pokemon_votes_gen = source_generation.data['votes']
+    # Convert dataframe to column data source
+    return ColumnDataSource(df_), div_title
 
-p_generation = figure(y_range=FactorRange(factors=pokemon_names_gen, bounds=(0, len(pokemon_names_gen))), 
-                      x_axis_label='Votes', plot_height=PLOT_HEIGHT, tools=tools)
-r_generation = p_generation.hbar(y='name', left=0, right='votes', height=1, color='generation_color', source=source_generation)
-p_generation.x_range = Range1d(0, max(pokemon_votes_gen)*1.05, bounds=(0, max(pokemon_votes_gen)*1.05))
-p_generation.ygrid.grid_line_color = None
-y_coord = pokemon_names_gen.tolist().index(initial_name) + 0.5
-
-pokemon_names_gen.tolist()
-arrow_generation = Arrow(end=NormalHead(line_color='red', fill_color='red', line_width=0, size=10, line_alpha=0.75, fill_alpha=0.75), 
-                      line_color='red', line_width=2.5, line_alpha=0.75, 
-                      x_start=initial_votes + max(pokemon_votes_gen)*0.05, x_end=initial_votes, 
-                      y_start=y_coord, y_end=y_coord)
-p_generation.add_layout(arrow_generation)
-hover_generation = HoverTool(mode='hline')
-hover_generation.tooltips = """
-<table style="width:175px">
-  <tr>
-    <th>@name</th>
-    <td rowspan=4><image src=@sprite_source alt="" width="75"/></td>
-  </tr>
-  <tr>
-    <td><strong>Votes: </strong>@votes</td>
-  </tr>
-  <tr>
-    <td><strong>Ranking: </strong>@ranking_generation</td>
-  </tr>
-</table>
-"""
-p_generation.add_tools(hover_generation)
+def make_plot(source):
 
 
-# Create the "Votes in time" plot.
-source_time = ColumnDataSource(df_votes_init[['timestamp', 'timestamp_h', 'vote']])
-timestamp = source_time.data['timestamp']
-votes = source_time.data['vote']
-max_votes = max(df_votes_max['vote'])
-color = pokefunctions.get_sprite_color(pokefunctions.get_sprite(initial_number))
+    #table in the plot
+    columns = [
+        TableColumn(field="name", title="Restaurant Name", width=100),
+        TableColumn(field="stars", title="Stars", width=50),
+        TableColumn(field="state_name", title="State", width=80),
+        TableColumn(field="city", title="City", width=80),
+        TableColumn(field="cat_kitchen", title="Kitchen", width=110),
+        TableColumn(field="cat_type", title="Type", width=100),
+        TableColumn(field="PriceRange", title="Price", width=60)
+    ]
+    table = DataTable(source=source, columns=columns, width=660, height=200, fit_columns=False)
 
-p_time = figure(plot_height=PLOT_HEIGHT, x_axis_type='datetime', x_axis_label="Time", y_axis_label="Votes", tools=tools)
-# Notice how we need to give a huge width value since the datetime axis has a resolution of miliseconds.
-# See https://stackoverflow.com/questions/45711567/categorical-y-axis-and-datetime-x-axis-with-bokeh-vbar-plot
-r_time = p_time.vbar(x='timestamp', bottom=0, top='vote', width=3600000, line_color='#696969', fill_color=color, source=source_time)
+    #Map layout of North America
+    tooltips = [("Restaurant","@name"), ("Stars", "@stars")]
 
-p_time.x_range = Range1d(df_votes_init['timestamp'].min(), df_votes_init['timestamp'].max(), bounds=(df_votes_init['timestamp'].min(), df_votes_init['timestamp'].max()))
-p_time.y_range = Range1d(0, max_votes*1.05, bounds=(0, max_votes*1.05))
+    p = figure(x_axis_type="mercator", y_axis_type="mercator", 
+           x_axis_label = 'Longitude', y_axis_label = 'Latitude', 
+           tooltips = tooltips, plot_width=500, plot_height=500, 
+           toolbar_location='below', tools="pan,wheel_zoom,reset", 
+            active_scroll='auto')
 
-x_formatter = DatetimeTickFormatter(minutes=['%H:%M'], 
-                                    hours=['%H:%M'], 
-                                    days=['%H:%M'], 
-                                    months=['%H:%M'], 
-                                    years=['%H:%M'])
-p_time.xaxis.formatter = x_formatter
-hover_time = HoverTool(mode='vline')
-hover_time.tooltips = """
-<table style="width:100px">
-  <tr>
-    <td><strong>Time: </strong>@timestamp_h h</td>
-  </tr>
-  <tr>
-    <td><strong>Votes: </strong>@vote</td>
-  </tr>
-</table>
-"""
-p_time.add_tools(hover_time)
+    p.circle(x = 'mercator_x', y = 'mercator_y', color = 'lightblue', source=source, 
+         size=10, fill_alpha = 0.7)
 
+    chosentile = get_provider(Vendors.CARTODBPOSITRON)
+    p.add_tile(chosentile)
 
-# Create tabs.
-tab1 = Panel(child=p_overall, title="Overall")
-tab2 = Panel(child=p_generation, title="Generation")
-tab3 = Panel(child=p_time, title="Votes in time")
-tabs = Tabs(tabs=[tab1, tab2, tab3])
+    return table, p
 
-
-
+# Update maps
 def update(attr, old, new):
     
-    Pokemon = select.value
+    # Get the list of carriers for the graph
+    selectedState = select_state.value
+    selectedKitchen = select_kitchen.value
+    selectedType = select_type.value
+    selectedPrice = [select_price.labels[i] for i in select_price.active]
     
-    # Get Pokemon of interest values.
-    pokemon_number = df.index[df.loc[:, 'name'] == Pokemon].tolist()[0]
-    pokemon_name = df.loc[pokemon_number, 'name']
-    pokemon_generation = df.loc[pokemon_number, 'generation']
-    pokemon_votes = df.loc[pokemon_number, 'votes']
-    pokemon_ranking_overall = df.loc[pokemon_number, 'ranking_overall']
-    pokemon_ranking_generation = df.loc[pokemon_number, 'ranking_generation']
+    # Make a new dataset based on the selected filters and the make_dataset function defined earlier
+    new_src, div_title = make_dataset(selectedState, selectedKitchen, selectedType, selectedPrice)
+    # Update the source used in the quad glpyhs
+    src.data.update(new_src.data)
     
-    # Update Pokemon panel.
-    sprite.text = """{}""".format(pokefunctions.get_sprite_html_text(pokemon_number, alt=pokemon_name, width=150))
-    info.text="""
-    <h3>{0}. {1}</h3>
-    <table style="width:100%">
-      <tr>
-        <td><b>Generation:</b></td>
-        <td>{2:.0f}</td>
-      </tr>
-      <tr>
-        <td><b>Votes:</b></td>
-        <td>{3:.0f}</td>
-      </tr>
-      <tr>
-        <td><b>Overall ranking:</b></td>
-        <td>{4:.0f}</td>
-      </tr>
-      <tr>
-        <td><b>Generation ranking:</b></td>
-        <td>{5:.0f}</td>
-      </tr>
-    </table>
-    """.format(pokemon_number, pokemon_name, pokemon_generation, pokemon_votes, pokemon_ranking_overall, pokemon_ranking_generation)
+    layout.children[0] = div_title
+
     
-    # Update overall.
-    y_coord = len(df) - pokemon_ranking_overall + 0.5
-    arrow_overall.x_start = pokemon_votes + max(df['votes'])*0.05
-    arrow_overall.x_end = pokemon_votes
-    arrow_overall.y_start = y_coord
-    arrow_overall.y_end = y_coord
-        
-    # Update generation.
-    df_generation_ = df_ranked.query('generation=="' + str(pokemon_generation) + '"')
-    source_generation_ = ColumnDataSource(df_generation_[['name', 'votes', 'generation_color', 'ranking_generation', 'sprite_source']])
-    pokemon_names_gen_ = source_generation_.data['name']
-    pokemon_votes_gen_ = source_generation_.data['votes']
+#selection the different filters
+div_subtitle = Div(text="<i> Filter with the data and find your favorite restaurant </i>")
 
-    p_generation.x_range.bounds = (0, max(pokemon_votes_gen_)*1.05)
-    p_generation.x_range.update(start=0, end=max(pokemon_votes_gen_)*1.05)
-    p_generation.y_range.bounds = (0, len(pokemon_names_gen_))
-    p_generation.y_range.factors = list(pokemon_names_gen_)
-    
-    r_generation.data_source.data.update(source_generation_.data)
+# User select: State
+div_state = Div(text="<b> Select State </b>")
+state = ['All']+df_new['state_name'].unique().tolist()
+select_state = Select(options=state, value=state[0]) #by default All is chosen
+select_state.on_change('value', update)
 
-    y_coord = pokemon_names_gen_.tolist().index(pokemon_name) + 0.5
-    arrow_generation.x_start = pokemon_votes + source_generation_.data['votes'].max()*0.05
-    arrow_generation.x_end = pokemon_votes
-    arrow_generation.y_start = y_coord
-    arrow_generation.y_end = y_coord
+# User select: Kitchen
+div_kitchen = Div(text="<b> Select Kitchen </b>")
+kitchen = ['All']+df_new['cat_kitchen'].unique().tolist()
+select_kitchen = Select(options=kitchen, value=kitchen[0]) #by default All is chosen
+select_kitchen.on_change('value', update)
 
-    # Update votes in time.
-    df_votes_ = df_votes.query('vote=="' + pokemon_name + '"')
-    df_votes_ = df_votes_.groupby(pd.Grouper(key='timestamp', freq='1h')).count()
-    df_votes_['timestamp'] = df_votes_.index
-    df_votes_['timestamp_h'] = df_votes_[['timestamp']].timestamp.dt.strftime('%H:%M')
-    df_votes_.index = np.arange(0, len(df_votes_))
+# User select: Type
+div_type = Div(text="<b> Select Type </b>")
+types = ['All']+df_new['cat_type'].unique().tolist()
+select_type = Select(options=types, value=types[0]) #by default All is chosen
+select_type.on_change('value', update)
 
-    source_time_ = ColumnDataSource(df_votes_[['timestamp', 'timestamp_h', 'vote']])
-    votes = source_time_.data['vote']
-    color = pokefunctions.get_sprite_color(pokefunctions.get_sprite(pokemon_number))
-    r_time.data_source.data.update(source_time_.data)
-    r_time.glyph.fill_color = color
+# User select : Price Range
+div_price = Div(text="<b> Select Price </b>")
+price_range = ['$','$$','$$$','$$$$','Unknown']
+select_price = CheckboxButtonGroup(labels=price_range, active=[2,3])
+select_price.on_change('active', update)
 
+#initial source and plot
+initial_select_price = [select_price.labels[i] for i in select_price.active]
 
-select.on_change('value', update) 
-l = layout(row(column(sprite, info, select), tabs), sizing_mode='stretch_width')
-curdoc().add_root(l)
+src, div_title = make_dataset(select_state.value,select_kitchen.value, select_type.value, initial_select_price)
+table, p = make_plot(src)
+
+# Combine all controls to get in column
+col_tab_plot = row(table, p, height=200, width=1200)
+col_filters_1 = column(div_state, select_state, div_kitchen, select_kitchen , width=290)
+col_filters_2 = column(div_type, select_type, div_price, select_price, width=290)
+
+# Layout
+layout = column(div_title, div_subtitle, col_tab_plot, row(col_filters_1,col_filters_2)) 
+#it is possible to add multiple col_filters in the row(), you just need to specify it above
+curdoc().add_root(layout)
