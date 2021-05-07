@@ -1,9 +1,9 @@
 dependencies:
-  - pandas
-  - xlrd
-  - numpy
+  - pandas=0.24.2
+  - xlrd=1.2.0
+  - numpy=1.16.4
   - pathlib
-  - bokeh
+  - bokeh=1.2.0
   - requests
   - pip
   - pip:
