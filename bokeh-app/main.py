@@ -191,3 +191,7 @@ col_filters_2 = column(div_type, select_type, div_price, select_price, width=290
 layout = column(div_title, div_subtitle, col_tab_plot, row(col_filters_1,col_filters_2)) 
 #it is possible to add multiple col_filters in the row(), you just need to specify it above
 curdoc().add_root(layout)
+
+
+# [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Restaurant-Guide/interactive-bokeh.git/main?urlpath=%2Fproxy%2F5006%2Fbokeh-app)
+# https://mybinder.org/v2/gh/Restaurant-Guide/interactive-bokeh.git/main?urlpath=%2Fproxy%2F5006%2Fbokeh-app
