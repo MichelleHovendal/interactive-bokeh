@@ -102,19 +102,21 @@ def make_dataset(selectedState, selectedKitchen, selectedType, selectedPrice):
 
 def make_plot(source):
 
-
     #table in the plot
     columns = [
-        TableColumn(field="name", title="Restaurant Name", width=100),
-        TableColumn(field="stars", title="Stars", width=50),
-        TableColumn(field="state_name", title="State", width=80),
-        TableColumn(field="city", title="City", width=80),
-        TableColumn(field="cat_kitchen", title="Kitchen", width=110),
-        TableColumn(field="cat_type", title="Type", width=100),
-        TableColumn(field="PriceRange", title="Price", width=60)
-    ]
-    table = DataTable(source=source, columns=columns, width=660, height=200, fit_columns=False)
-
+            TableColumn(field="name", title="Restaurant Name", width=100),
+            TableColumn(field="stars", title="Stars", width=50),
+            TableColumn(field="avg_stars", title="Updated Stars", width=80),
+            TableColumn(field="review_count", title="# of total reviews", width=100),
+            TableColumn(field="Count", title="Updated # of total reviews", width=120),
+            TableColumn(field="state_name", title="State", width=80),
+            TableColumn(field="city", title="City", width=80),
+            TableColumn(field="cat_kitchen", title="Kitchen", width=110),
+            TableColumn(field="cat_type", title="Type", width=100),
+            TableColumn(field="PriceRange", title="Price", width=60)
+        ]
+    table = DataTable(source=source, columns=columns, width=1200, height=200, fit_columns=False)
+    
     #Map layout of North America
     tooltips = [("Restaurant","@name"), ("Stars", "@stars")]
 
